@@ -1,0 +1,34 @@
+scraper:
+  public_demo_mode: true
+  genres: ["ecchi", "romance", "action", "fantasy"]
+  languages: ["es", "en"]
+  only_preferred_language: false
+  min_images_per_chapter: 5 # análisis previo: si el cap.1 tiene menos imágenes, no descargar y probar otra fuente
+  max_concurrent: 3
+  download_path: "./data/manga"
+  delay_between_requests: 2 # seconds
+  sites: []
+  search:
+    engine: disabled
+    enabled: false
+    priority: 99
+    keywords: ["sample", "demo"]
+  # Filtro de imágenes: descarta placeholders (negro/blanco/gris) y opcionalmente usa visión (Ollama)
+  image_filter:
+    enabled: true
+    min_variance: 80.0 # imágenes con varianza menor se descartan (casi sólidas)
+    use_ollama_vision: false # true = además preguntar a modelo con visión (llava, pixtral)
+    ollama_vision_model: "llava" # Mistral es solo texto; para visión: llava, pixtral, bakllava
+
+analyzer:
+  ocr_languages: ["es", "en"]
+  max_tokens: 32768
+  ollama_host: "http://localhost:11434"
+  ollama_model: "mistral"
+  min_text_length: 50 # minimum chars to consider a page has text
+  sample_strategy: "uniform" # uniform | random | weighted
+
+api:
+  host: "0.0.0.0"
+  port: 8000
+  cors_origins: ["http://localhost:5174", "http://localhost:5173"]
