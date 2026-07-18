@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: mangavault-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.deploy.txt
+    startCommand: uvicorn src.api.app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: MANGAVAULT_SEED_DEMO_ON_START
+        value: "true"

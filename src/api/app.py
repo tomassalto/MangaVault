@@ -1,6 +1,7 @@
 """FastAPI application — the manga library API server."""
 
 import asyncio
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -35,6 +36,10 @@ _scraper_last_run: datetime | None = None
 async def lifespan(app: FastAPI):
     """Initialize DB on startup."""
     init_db()
+    if os.getenv("MANGAVAULT_SEED_DEMO_ON_START", "").lower() in {"1", "true", "yes"}:
+        from src.demo_seed import seed_demo_library
+
+        seed_demo_library(reset=False)
     yield
 
 
