@@ -87,6 +87,13 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
     if config_path.exists():
         with open(config_path) as f:
             raw: dict[str, Any] = yaml.safe_load(f) or {}
+        cors_origins = os.getenv("MANGAVAULT_CORS_ORIGINS")
+        if cors_origins:
+            raw.setdefault("api", {})["cors_origins"] = [
+                origin.strip()
+                for origin in cors_origins.split(",")
+                if origin.strip()
+            ]
         _config = AppConfig(**raw)
     else:
         _config = AppConfig()
