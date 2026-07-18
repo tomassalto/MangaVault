@@ -94,6 +94,22 @@ export interface TagCount {
   count: number;
 }
 
+export interface DemoManifestItem {
+  title: string;
+  slug: string;
+  language: string;
+  tags: string[];
+  synopsis: string;
+  imported: boolean;
+}
+
+export interface DemoImportResponse {
+  created: boolean;
+  title: string;
+  slug: string;
+  message: string;
+}
+
 // API calls
 export const getMangaList = (params?: {
   page?: number;
@@ -151,6 +167,12 @@ export const getScraperProgress = () =>
 
 export const analyzeManga = (slug: string) =>
   api.post("/analyze", { slug }).then((r) => r.data);
+
+export const getDemoManifest = () =>
+  api.get<DemoManifestItem[]>("/demo/manifest").then((r) => r.data);
+
+export const importDemoTitle = (query: string) =>
+  api.post<DemoImportResponse>("/demo/import", { query }).then((r) => r.data);
 
 export const imageUrl = (path: string) => joinApiPath(`/images/${path}`);
 

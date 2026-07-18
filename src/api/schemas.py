@@ -141,3 +141,23 @@ class UpdateChaptersRequest(BaseModel):
 
 class SuggestMangaRequest(BaseModel):
     title: str
+
+
+class DemoImportRequest(BaseModel):
+    query: str
+
+
+class DemoImportOut(BaseModel):
+    created: bool
+    title: str
+    slug: str
+    message: str
+
+
+class DemoManifestItem(BaseModel):
+    title: str
+    slug: str
+    language: str
+    tags: list[str]
+    synopsis: str
+    imported: bool

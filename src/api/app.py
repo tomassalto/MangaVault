@@ -19,6 +19,9 @@ from .routes import chapters, images, manga
 from .schemas import (
     AnalyzeRequest,
     AnalyzeResult,
+    DemoImportOut,
+    DemoImportRequest,
+    DemoManifestItem,
     ScraperProgressOut,
     ScraperRunRequest,
     ScraperStatusOut,
@@ -39,7 +42,8 @@ async def lifespan(app: FastAPI):
     if os.getenv("MANGAVAULT_SEED_DEMO_ON_START", "").lower() in {"1", "true", "yes"}:
         from src.demo_seed import seed_demo_library
 
-        seed_demo_library(reset=False)
+        reset_demo = os.getenv("MANGAVAULT_SEED_DEMO_RESET_ON_START", "").lower() in {"1", "true", "yes"}
+        seed_demo_library(reset=reset_demo)
     yield
 
 
@@ -111,6 +115,32 @@ def _ensure_scraper_enabled() -> None:
             status_code=403,
             detail="Scraper is disabled in this public build.",
         )
+
+
+def _ensure_public_demo_enabled() -> None:
+    if not config.scraper.public_demo_mode:
+        raise HTTPException(
+            status_code=404,
+            detail="Demo endpoints are only available in the public build.",
+        )
+
+
+@app.get("/demo/manifest", response_model=list[DemoManifestItem])
+def demo_manifest():
+    """List the cached public demo titles and their import state."""
+    _ensure_public_demo_enabled()
+    from src.demo_seed import list_demo_manifest
+
+    return list_demo_manifest()
+
+
+@app.post("/demo/import", response_model=DemoImportOut)
+def demo_import(req: DemoImportRequest):
+    """Import one cached demo title without enabling public scraping."""
+    _ensure_public_demo_enabled()
+    from src.demo_seed import import_demo_title
+
+    return import_demo_title(req.query)
 
 
 async def _run_scraper_task(

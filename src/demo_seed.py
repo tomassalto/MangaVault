@@ -7,6 +7,7 @@ from pathlib import Path
 from textwrap import wrap
 
 from PIL import Image, ImageDraw, ImageFont
+from slugify import slugify
 
 from src.config import get_config
 from src.db.database import SessionLocal, init_db
@@ -72,6 +73,11 @@ LEGACY_DEMO_SLUGS = {
     "the-orchard-witch",
 }
 
+DEFAULT_DEMO_INITIAL_SLUGS = {
+    "captain-comet-moon-raiders",
+    "la-mascara-relampago",
+}
+
 
 PAGE_LINES = [
     [
@@ -92,14 +98,11 @@ PAGE_LINES = [
 ]
 
 
-def seed_demo_library(reset: bool = False) -> dict[str, int]:
+def seed_demo_library(reset: bool = False, slugs: list[str] | None = None) -> dict[str, int]:
     """Populate the local database with original demo titles and generated images."""
     init_db()
-    config = get_config()
-    image_root = Path(config.scraper.download_path)
-    if not image_root.is_absolute():
-        image_root = PROJECT_ROOT / image_root
-    image_root.mkdir(parents=True, exist_ok=True)
+    image_root = _image_root()
+    selected_slugs = set(slugs) if slugs is not None else DEFAULT_DEMO_INITIAL_SLUGS
 
     db = SessionLocal()
     try:
@@ -108,51 +111,147 @@ def seed_demo_library(reset: bool = False) -> dict[str, int]:
 
         created = 0
         for index, item in enumerate(DEMO_MANGA, start=1):
+            if item["slug"] not in selected_slugs:
+                continue
             existing = db.query(Manga).filter(Manga.slug == item["slug"]).first()
             if existing:
                 continue
-
-            manga_dir = image_root / item["slug"]
-            manga_dir.mkdir(parents=True, exist_ok=True)
-            cover_rel = f"{item['slug']}/cover.png"
-            _draw_cover(image_root / cover_rel, item)
-
-            manga = Manga(
-                title=item["title"],
-                slug=item["slug"],
-                synopsis=item["synopsis"],
-                language=item["language"],
-                source_url=None,
-                source_site="demo",
-                cover_path=cover_rel,
-                status="ready",
-                content_rating=item["rating"],
-                total_chapters=2,
-            )
-            db.add(manga)
-            db.flush()
-
-            for tag in item["tags"]:
-                db.add(MangaTag(manga_id=manga.id, tag=tag))
-
-            _create_chapters(db, image_root, manga, item, index)
-            db.add(
-                AnalysisLog(
-                    manga_id=manga.id,
-                    model_used="demo-seed",
-                    tokens_used=420 + index * 35,
-                    raw_response="Demo metadata seeded for portfolio mode.",
-                    language_detected=item["language"],
-                    tags_detected=str(item["tags"]),
-                    accepted=True,
-                )
-            )
+            _create_demo_manga(db, image_root, item, index)
             created += 1
 
         db.commit()
         return {"created": created, "total": db.query(Manga).count()}
     finally:
         db.close()
+
+
+def import_demo_title(query: str) -> dict[str, object]:
+    """Import one cached demo title, simulating the public ingestion path."""
+    init_db()
+    image_root = _image_root()
+    item, index = _find_demo_item(query)
+
+    db = SessionLocal()
+    try:
+        existing = db.query(Manga).filter(Manga.slug == item["slug"]).first()
+        if existing:
+            return {
+                "created": False,
+                "title": existing.title,
+                "slug": existing.slug,
+                "message": "Demo title was already imported.",
+            }
+
+        manga = _create_demo_manga(db, image_root, item, index)
+        db.commit()
+        return {
+            "created": True,
+            "title": manga.title,
+            "slug": manga.slug,
+            "message": "Demo title imported from the cached public dataset.",
+        }
+    finally:
+        db.close()
+
+
+def list_demo_manifest() -> list[dict[str, object]]:
+    """Return the public demo catalog, including whether each title is imported."""
+    init_db()
+    db = SessionLocal()
+    try:
+        imported = {
+            slug
+            for (slug,) in db.query(Manga.slug)
+            .filter(Manga.source_site == "demo")
+            .all()
+        }
+        return [
+            {
+                "title": item["title"],
+                "slug": item["slug"],
+                "language": item["language"],
+                "tags": item["tags"],
+                "synopsis": item["synopsis"],
+                "imported": item["slug"] in imported,
+            }
+            for item in DEMO_MANGA
+        ]
+    finally:
+        db.close()
+
+
+def _create_demo_manga(db, image_root: Path, item: dict, index: int) -> Manga:
+    manga_dir = image_root / item["slug"]
+    manga_dir.mkdir(parents=True, exist_ok=True)
+    cover_rel = f"{item['slug']}/cover.png"
+    _draw_cover(image_root / cover_rel, item)
+
+    manga = Manga(
+        title=item["title"],
+        slug=item["slug"],
+        synopsis=item["synopsis"],
+        language=item["language"],
+        source_url=None,
+        source_site="demo",
+        cover_path=cover_rel,
+        status="ready",
+        content_rating=item["rating"],
+        total_chapters=2,
+    )
+    db.add(manga)
+    db.flush()
+
+    for tag in item["tags"]:
+        db.add(MangaTag(manga_id=manga.id, tag=tag))
+
+    _create_chapters(db, image_root, manga, item, index)
+    db.add(
+        AnalysisLog(
+            manga_id=manga.id,
+            model_used="demo-seed",
+            tokens_used=420 + index * 35,
+            raw_response="Demo metadata seeded for portfolio mode.",
+            language_detected=item["language"],
+            tags_detected=str(item["tags"]),
+            accepted=True,
+        )
+    )
+    return manga
+
+
+def _find_demo_item(query: str) -> tuple[dict, int]:
+    normalized = slugify(query or "")
+    if not normalized:
+        return DEMO_MANGA[0], 1
+
+    for index, item in enumerate(DEMO_MANGA, start=1):
+        if normalized in item["slug"] or normalized in slugify(item["title"]):
+            return item, index
+
+    aliases = {
+        "batman": "la-mascara-relampago",
+        "superman": "captain-comet-moon-raiders",
+        "one-piece": "captain-comet-moon-raiders",
+        "doctor-stone": "atomic-scarlet-clockwork-sun",
+        "dr-stone": "atomic-scarlet-clockwork-sun",
+    }
+    mapped_slug = aliases.get(normalized)
+    if mapped_slug:
+        for index, item in enumerate(DEMO_MANGA, start=1):
+            if item["slug"] == mapped_slug:
+                return item, index
+
+    index = sum(ord(char) for char in normalized) % len(DEMO_MANGA)
+    return DEMO_MANGA[index], index + 1
+
+
+def _image_root() -> Path:
+    config = get_config()
+    image_root = Path(config.scraper.download_path)
+    if not image_root.is_absolute():
+        image_root = PROJECT_ROOT / image_root
+    image_root.mkdir(parents=True, exist_ok=True)
+    return image_root
 
 
 def _clear_demo_data(db, image_root: Path) -> None:

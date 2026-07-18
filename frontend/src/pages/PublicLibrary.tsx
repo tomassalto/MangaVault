@@ -3,33 +3,29 @@ import { BookOpen, CheckCircle2, DownloadCloud, Loader2, RefreshCw, Search } fro
 import { MangaCard } from "../components/MangaCard";
 import { TagFilter } from "../components/TagFilter";
 import {
+  getDemoManifest,
   getMangaList,
   getTags,
+  importDemoTitle,
+  type DemoManifestItem,
   getScraperStatus,
   type Manga,
   type TagCount,
   type ScraperStatus,
 } from "../api/client";
 
-const DEMO_TITLES = [
-  "Captain Comet and the Moon Raiders",
-  "La Mascara Relampago",
-  "Jungle Queen of Mars",
-  "El Tren Fantasma de Andromeda",
-  "Atomic Scarlet vs. The Clockwork Sun",
-];
-
 const DEMO_STEPS = [
-  "Resolving cached demo source",
-  "Indexing chapters and page manifest",
-  "Importing generated pages",
-  "Reading cached OCR text",
-  "Saving metadata and tags",
+  "Resolving cached public source",
+  "Indexing chapter and page manifest",
+  "Copying generated page assets",
+  "Loading cached OCR and metadata",
+  "Saving title, chapters, pages, and tags",
 ];
 
 export function PublicLibrary() {
   const [mangas, setMangas] = useState<Manga[]>([]);
   const [tags, setTags] = useState<TagCount[]>([]);
+  const [demoManifest, setDemoManifest] = useState<DemoManifestItem[]>([]);
   const [status, setStatus] = useState<ScraperStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -46,7 +42,7 @@ export function PublicLibrary() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [mangaRes, tagsRes, statusRes] = await Promise.all([
+      const [mangaRes, tagsRes, statusRes, manifestRes] = await Promise.all([
         getMangaList({
           page,
           per_page: 24,
@@ -56,11 +52,13 @@ export function PublicLibrary() {
         }),
         getTags(),
         getScraperStatus(),
+        getDemoManifest(),
       ]);
       setMangas(mangaRes.items);
       setTotal(mangaRes.total);
       setTags(tagsRes);
       setStatus(statusRes);
+      setDemoManifest(manifestRes);
     } catch (e) {
       console.error(e);
     } finally {
@@ -78,12 +76,13 @@ export function PublicLibrary() {
     };
   }, []);
 
-  const runDemoImport = () => {
+  const runDemoImport = (query = demoQuery) => {
     timers.current.forEach(clearTimeout);
     timers.current = [];
     setDemoRunning(true);
     setDemoStep(0);
-    setDemoLogs([`Queued: ${demoQuery || "Atomic Scarlet"}`]);
+    setDemoQuery(query);
+    setDemoLogs([`Queued cached import: ${query || "Atomic Scarlet"}`]);
     setSearchQuery("");
     setSelectedTag(null);
     setSelectedLang(null);
@@ -97,12 +96,23 @@ export function PublicLibrary() {
       timers.current.push(timer);
     });
 
-    const doneTimer = setTimeout(() => {
-      const matched = findDemoTitle(demoQuery);
-      setDemoStep(DEMO_STEPS.length);
-      setDemoLogs((current) => [...current, `Ready: ${matched}`]);
-      setSearchQuery(matched);
-      setDemoRunning(false);
+    const doneTimer = setTimeout(async () => {
+      try {
+        const result = await importDemoTitle(query);
+        setDemoStep(DEMO_STEPS.length);
+        setDemoLogs((current) => [
+          ...current,
+          `${result.created ? "Imported" : "Already imported"}: ${result.title}`,
+        ]);
+        setSearchQuery(result.title);
+        setPage(1);
+        await fetchData();
+      } catch (error) {
+        console.error(error);
+        setDemoLogs((current) => [...current, "Import failed. Check API deployment logs."]);
+      } finally {
+        setDemoRunning(false);
+      }
     }, 520 * (DEMO_STEPS.length + 1));
     timers.current.push(doneTimer);
   };
@@ -144,7 +154,7 @@ export function PublicLibrary() {
               <h2 className="text-base font-semibold">Cached demo import</h2>
             </div>
             <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-              Recording mode uses local demo assets to show the ingestion flow quickly while the public build keeps private adapters disabled.
+              Public mode does not scrape the web. It imports from a small legal cache of original demo comics so reviewers can see the ingestion flow, generated pages, OCR metadata, tags, and reader without private adapters.
             </p>
 
             <div className="mt-4 flex flex-col gap-2 sm:flex-row">
@@ -168,15 +178,51 @@ export function PublicLibrary() {
               </div>
               <button
                 type="button"
-                onClick={runDemoImport}
+                onClick={() => runDemoImport()}
                 disabled={demoRunning}
                 className="px-4 py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2 text-white disabled:opacity-60"
                 style={{ backgroundColor: "var(--accent)" }}
               >
                 {demoRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <DownloadCloud className="w-4 h-4" />}
-                {demoRunning ? "Importing..." : "Run demo"}
+                {demoRunning ? "Importing..." : "Import cached title"}
               </button>
             </div>
+
+            {demoManifest.length > 0 && (
+              <div className="mt-4 grid gap-2">
+                {demoManifest.map((item) => (
+                  <button
+                    key={item.slug}
+                    type="button"
+                    onClick={() => runDemoImport(item.title)}
+                    disabled={demoRunning}
+                    className="rounded-xl border p-3 text-left transition-colors disabled:opacity-60"
+                    style={{
+                      backgroundColor: item.imported ? "rgba(34,197,94,0.08)" : "var(--bg-secondary)",
+                      borderColor: item.imported ? "rgba(34,197,94,0.35)" : "var(--border)",
+                    }}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                        {item.title}
+                      </span>
+                      <span
+                        className="rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                        style={{
+                          backgroundColor: item.imported ? "rgba(34,197,94,0.16)" : "rgba(139,92,246,0.14)",
+                          color: item.imported ? "var(--success)" : "var(--accent)",
+                        }}
+                      >
+                        {item.imported ? "Imported" : "Import"}
+                      </span>
+                    </div>
+                    <p className="mt-1 line-clamp-2 text-xs" style={{ color: "var(--text-muted)" }}>
+                      {item.synopsis}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div
@@ -192,7 +238,7 @@ export function PublicLibrary() {
             <div className="mt-3 space-y-1.5 min-h-28">
               {demoLogs.length === 0 ? (
                 <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-                  Ready for a portfolio recording.
+                  Pick a cached title to simulate ingestion.
                 </p>
               ) : (
                 demoLogs.slice(-5).map((log, index) => (
@@ -286,7 +332,7 @@ export function PublicLibrary() {
             No titles found
           </p>
           <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>
-            Try one of the cached demo titles.
+            Import one cached demo title or clear your filters.
           </p>
         </div>
       ) : (
@@ -316,28 +362,4 @@ export function PublicLibrary() {
       )}
     </div>
   );
-}
-
-function findDemoTitle(query: string): string {
-  const normalized = query.trim().toLowerCase();
-  if (!normalized) return DEMO_TITLES[0];
-
-  const direct = DEMO_TITLES.find((title) => title.toLowerCase().includes(normalized));
-  if (direct) return direct;
-
-  if (normalized.includes("stone") || normalized.includes("atomic")) {
-    return "Atomic Scarlet vs. The Clockwork Sun";
-  }
-  if (normalized.includes("one") || normalized.includes("captain") || normalized.includes("moon")) {
-    return "Captain Comet and the Moon Raiders";
-  }
-  if (normalized.includes("tren") || normalized.includes("ghost")) {
-    return "El Tren Fantasma de Andromeda";
-  }
-
-  return DEMO_TITLES[Math.abs(hashCode(normalized)) % DEMO_TITLES.length];
-}
-
-function hashCode(value: string): number {
-  return value.split("").reduce((acc, char) => ((acc << 5) - acc + char.charCodeAt(0)) | 0, 0);
 }
