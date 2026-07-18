@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
+const API_BASE_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL || "/api");
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -152,4 +152,13 @@ export const getScraperProgress = () =>
 export const analyzeManga = (slug: string) =>
   api.post("/analyze", { slug }).then((r) => r.data);
 
-export const imageUrl = (path: string) => `${API_BASE_URL}/images/${path}`;
+export const imageUrl = (path: string) => joinApiPath(`/images/${path}`);
+
+function normalizeApiBaseUrl(url: string) {
+  return url.replace(/\/+$/, "") || "/api";
+}
+
+function joinApiPath(path: string) {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${API_BASE_URL}${normalizedPath}`;
+}
